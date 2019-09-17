@@ -129,15 +129,48 @@ struct FuseAddBiasIntoConv final : public PredicateBasedPass {
           orig_conv->node()->isBefore(orig_bias->node())) {
         orig_bias->node()->moveBefore(orig_conv->node());
       }
-      Node* squeeze = graph.create(kSqueeze, 1);
-      std::vector<int64_t> axes(bias_shape.size());
-      std::iota(axes.begin(), axes.end(), static_cast<int64_t>(0));
-      axes.erase(
-          axes.begin() + (1 + bias_shape.size() - static_cast<unsigned>(rank)));
-      squeeze->is_(kaxes, std::move(axes));
-      squeeze->addInput(orig_bias);
-      squeeze->insertBefore(orig_conv->node());
-      orig_conv->node()->addInput(squeeze->output());
+      if (orig_bias->node()->kind() == kParam) {
+        auto b_it = graph.getInitializer(orig_bias->uniqueName());
+        if (b_it == graph.initializers().end()) {
+          return false;
+        }
+        auto b_t = *b_it;
+        Tensor new_b_t;
+        new_b_t.elem_type() = b_t.elem_type();
+        new_b_t.sizes().emplace_back(M);
+
+#define DO_COMPUTATION(vec)
+  std::copy(b_t.floats().begin(),
+            b_t.floats().end(),
+            std::back_inserter(new_b_t.floats()));
+
+        switch (new_b_t.elem_type()) {
+          case ONNX_NAMESPACE::TensorProto_DataType_FLOAT: {
+            DO_COMPUTATION(floats)
+            break;
+          }
+          case ONNX_NAMESPACE::TensorProto_DataType_DOUBLE: {
+            DO_COMPUTATION(doubles)
+            break;
+          }
+          default:
+            return false;
+        }
+#undef DO_COMPUTATION
+
+        Value* new_b_v = graph.addInitializerAndInput(new_b_t);
+        orig_conv->node()->addInput(new_b_v);
+      } else {
+        Node* squeeze = graph.create(kSqueeze, 1);
+        std::vector<int64_t> axes(bias_shape.size());
+        std::iota(axes.begin(), axes.end(), static_cast<int64_t>(0));
+        axes.erase(
+            axes.begin() + (1 + bias_shape.size() - static_cast<unsigned>(rank)));
+        squeeze->is_(kaxes, std::move(axes));
+        squeeze->addInput(orig_bias);
+        squeeze->insertBefore(orig_conv->node());
+        orig_conv->node()->addInput(squeeze->output());
+      }
     } else {
       return false;
     }
