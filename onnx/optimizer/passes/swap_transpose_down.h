@@ -120,6 +120,9 @@ struct SwapTransposeDown final : public PredicateBasedPass {
                         perm_1.begin())) {
           return false;
         }
+        if (input_0->uses().size() != 1 || input_1->uses().size() != 1) {
+          return false;
+        }
         for (int i = 0; i < n->inputs().size(); i++) {
           auto trans_node = n->inputs()[i]->node();
           n->moveBefore(trans_node);
@@ -129,12 +132,16 @@ struct SwapTransposeDown final : public PredicateBasedPass {
             trans_node->destroy();
           }
         }
-        Node *new_trans_node = graph.create(kTranspose, 1);
-        new_trans_node->is_(kperm, std::move(perm_0));
-        new_trans_node->insertAfter(n);
-        n->output()->replaceAllUsesWith(new_trans_node->output());
-        new_trans_node->addInput(n->output());
-        reset_sizes(new_trans_node);
+        auto uses = n->output()->uses();
+        for (int i = 0; i < n->output()->uses().size(); i++) {
+          Node *new_trans_node = graph.create(kTranspose, 1);
+          new_trans_node->is_(kperm, std::move(perm_0));
+          new_trans_node->insertAfter(n);
+          auto user = uses[i].user;
+          user->replaceInputWith(n->output(), new_trans_node->output());
+          new_trans_node->addInput(n->output());
+          reset_sizes(new_trans_node);
+        }
       } else {
         return false;
       }
