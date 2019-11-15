@@ -25,7 +25,7 @@
 
 #define ONNX_DISALLOW_COPY_AND_ASSIGN(TypeName) \
   TypeName(const TypeName&) = delete; \
-  void operator=(const TypeName&) = delete
+  TypeName& operator=(const TypeName&) = delete
 
 
 namespace ONNX_NAMESPACE {
@@ -87,7 +87,7 @@ enum class AttributeKind : uint8_t {
 
 static inline const char * toString(AttributeKind kind) {
   static constexpr const char* names[] = {"f","fs", "i", "is", "s", "ss", "t", "ts", "g", "gs"};
-  ONNX_ASSERT(size_t(kind) < sizeof(names) / sizeof(AttributeKind));
+  ONNX_ASSERT(size_t(kind) < sizeof(names) / sizeof(const char*));
   return names[int(kind)];
 }
 
@@ -1051,7 +1051,26 @@ public:
   }
 
   Value* addInitializerAndInput(const Tensor &initializer) {
-    return addInitializerAndInput(initializer, ONNX_NAMESPACE::to_string(next_unique_++));
+    Tensor initializerCopy = initializer;
+    std::vector<Dimension> dim_sizes{initializerCopy.sizes().cbegin(),
+                                     initializerCopy.sizes().cend()};
+    Value* new_init = addInput();
+    std::string name = ONNX_NAMESPACE::to_string(new_init->unique());
+    initializerCopy.setName(name);
+    new_init->setUniqueName(name);
+    new_init->setSizes(dim_sizes);
+    new_init->setElemType(initializerCopy.elem_type());
+    addInitializer(std::move(initializerCopy), name);
+    return new_init;
+  }
+
+  size_t getUniqueId() {
+    size_t unique_id = next_unique_++;
+    while (std::find(initializer_names_.begin(),
+                     initializer_names_.end(), ONNX_NAMESPACE::to_string(unique_id)) != initializer_names_.end()) {
+      unique_id = next_unique_++;
+    }
+    return unique_id;
   }
 
 
@@ -1114,7 +1133,7 @@ private:
 };
 
 inline Value::Value(Node *node_, size_t offset_)
-    : node_(node_), offset_(offset_), unique_(node_->graph_->next_unique_++),
+  : node_(node_), offset_(offset_), unique_(node_->graph_->getUniqueId()),
       stage_(node_->graph_->new_node_stage_), has_unique_name_(false),
       elem_type_(ONNX_NAMESPACE::TensorProto_DataType_UNDEFINED),
       has_sizes_(false) {
