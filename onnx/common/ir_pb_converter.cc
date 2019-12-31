@@ -236,6 +236,16 @@ std::unique_ptr<Graph> graphProtoToGraph(
     value_by_name_of[vip.name()] = v;
   }
 
+  for (int i = 0; i < gp.initializer_size(); i++) {
+    auto init = tensorProtoToTensor(gp.initializer(i));
+    if (value_by_name_of.find(init.name()) != value_by_name_of.end()) {
+      g->addInitializer(init, init.name());
+    } else {
+      auto v = g->addInitializerAndInput(init, init.name());
+      value_by_name_of[v->uniqueName()] = v;
+    }
+  }
+
   for (int i = 0; i < gp.node_size(); i++) {
     auto np = gp.node(i);
     auto* n =
@@ -314,10 +324,10 @@ std::unique_ptr<Graph> graphProtoToGraph(
     }
   }
 
-  for (int i = 0; i < gp.initializer_size(); i++) {
-    auto init = tensorProtoToTensor(gp.initializer(i));
-    g->addInitializer(init, init.name());
-  }
+//  for (int i = 0; i < gp.initializer_size(); i++) {
+//    auto init = tensorProtoToTensor(gp.initializer(i));
+//    g->addInitializer(init, init.name());
+//  }
 
   return g;
 }
