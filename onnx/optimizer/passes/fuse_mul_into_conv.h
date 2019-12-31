@@ -102,9 +102,10 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
     Tensor orig_s = *s_iter;
     Tensor s;
     s.elem_type() = orig_s.elem_type();
+    s.sizes().push_back(M);
 
 #define DO_COMPUTATION(t, vec)                                           \
-  s.sizes().push_back(M);                                                \
+  s.vec().clear();                                                       \
   for (int64_t i = 0; i < s.sizes()[0]; ++i) {                           \
     s.vec().push_back(orig_s.vec()[i]);                                  \
   }                                                                      \
