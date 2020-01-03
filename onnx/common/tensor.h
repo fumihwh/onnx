@@ -61,7 +61,7 @@ private:
     if (dim < 0) {
       dim += (int)sizes_.size();
     }
-    ONNX_ASSERT(dim >= 0 && (size_t)dim < sizes_.size());
+    ONNX_ASSERT(dim >= 0 && (size_t)dim <= sizes_.size());
     return std::accumulate(sizes_.begin() + dim, sizes_.end(), (int64_t)1, std::multiplies<int64_t>{});
   }
 
@@ -341,7 +341,7 @@ inline void Tensor::sqrt() {
 
 inline void Tensor::scale_by_first_dim(const Tensor& other) {
   ONNX_ASSERT(
-      sizes_.size() > 1 && other.sizes().size() == 1 &&
+      sizes_.size() > 0 && other.sizes().size() == 1 &&
       other.sizes()[0] == sizes_[0]);
   ONNX_ASSERT(other.elem_type() == elem_type_);
 

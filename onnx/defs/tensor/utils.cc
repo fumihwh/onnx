@@ -153,6 +153,27 @@ void resizeShapeInference_opset7_to_10(InferenceContext& ctx) {
   }
 
   if (nullptr != scales) {
+    if (scales->data_type() == TensorProto::INT32) {
+      const std::string &bytes = scales->raw_data();
+      std::vector<int32_t> hw;
+      hw.insert(
+          hw.end(),
+          reinterpret_cast<const int32_t *>(bytes.c_str()),
+          reinterpret_cast<const int32_t *>(bytes.c_str() + bytes.size()));
+      for (int i = 0; i < input_shape.dim_size(); ++i) {
+        auto *dim = output_shape->mutable_dim(i);
+        int64_t dim_value;
+        if (input_shape.dim(i).has_dim_value()) {
+          if (i <= 1) {
+            dim_value = input_shape.dim(i).dim_value();
+          } else {
+            dim_value = hw[i - 2];
+          }
+          dim->set_dim_value(static_cast<int64_t>(dim_value));
+        }
+      }
+      return;
+    }
     // Infer output shape's dimension value if 'scales' is known.
     if (scales->data_type() == TensorProto::FLOAT) {
       const auto& scales_data = ParseData<float>(scales);

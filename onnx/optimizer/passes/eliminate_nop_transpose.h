@@ -33,7 +33,10 @@ struct EliminateNopTranspose final : public PredicateBasedPass {
 
   bool runTransform(Node* node, Graph&, NodeDestroyType& destroy_current)
       override {
+    auto output_name = node->output()->uniqueName();
     node->output()->replaceAllUsesWith(node->input());
+    node->input()->setUniqueName(output_name);
+    node->input()->setElemType(node->output()->elemType());
     destroy_current = NodeDestroyType::DestroyOne;
     return true;
   }
