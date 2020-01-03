@@ -229,9 +229,10 @@ struct SwapTransposeDown final : public PredicateBasedPass {
           }
         }
       }
-
+      int32_t elem_type;
       for (int i = 0; i < inputs.size(); i++) {
         auto trans_node = inputs[i]->node();
+        elem_type = trans_node->output()->elemType();
         trans_node->moveAfter(n);
         n->replaceInput(i, trans_node->input());
         trans_node->removeInput(0);
@@ -249,6 +250,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       Node *new_trans_node = graph.create(kTranspose, 1);
       new_trans_node->is_(kperm, std::move(input_perm));
       new_trans_node->insertAfter(n);
+      new_trans_node->output()->setElemType(elem_type);
       n->output()->replaceAllUsesWith(new_trans_node->output());
       new_trans_node->addInput(n->output());
       reset_sizes(new_trans_node);
