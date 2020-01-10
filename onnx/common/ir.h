@@ -15,6 +15,7 @@
 #include <unordered_set>
 #include <vector>
 #include <iomanip>
+#include <chrono>
 
 #include "onnx/string_utils.h"
 #include "onnx/common/array_ref.h"
@@ -1070,7 +1071,10 @@ public:
     auto now = std::chrono::system_clock::now();
     auto now_c = std::chrono::system_clock::to_time_t(now);
     std::stringstream ss;
-    ss << std::put_time(localtime(&now_c), "%Y%m%d_%H%M%S");
+    std::time_t t = std::time(nullptr);
+    char mbstr[100];
+    std::strftime(mbstr, sizeof(mbstr), "%Y%m%d%H%M%S", std::localtime(&t));
+    ss << mbstr;
     return ss.str();
   }
 
