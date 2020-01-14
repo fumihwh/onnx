@@ -4,6 +4,7 @@
 #pragma once
 
 #include "onnx/optimizer/pass.h"
+#include "onnx/defs/tensor_util.h"
 
 namespace ONNX_NAMESPACE {
 namespace optimization {
@@ -15,7 +16,8 @@ const std::unordered_set<NodeKind> target_operators{kRelu,
                                                     kResize,
                                                     kLeakyRelu,
                                                     kAdd,
-                                                    kMul
+                                                    kMul,
+                                                    kClip
                                                     };
 
 struct SwapTransposeDown final : public PredicateBasedPass {
@@ -72,7 +74,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
 
   bool runTransform(Node* n, Graph& graph, NodeDestroyType& destroy_current)
       override {
-    if (n->kind() == kRelu or n->kind() == kLeakyRelu) {
+    if (n->kind() == kRelu or n->kind() == kLeakyRelu or n->kind() == kClip) {
       simple_swap(n, n->input()->node(), graph, destroy_current);
       n->output()->setSizes(n->input()->sizes());
     }
@@ -95,16 +97,32 @@ struct SwapTransposeDown final : public PredicateBasedPass {
             new_t.sizes().emplace_back(s);
           }
         }
+        else if (t.sizes().size() == 0) {
+          for (int i = 0; i < perm.size(); i++) {
+            new_t.sizes().emplace_back(1);
+          }
+        }
         else if (t.sizes().size() == perm.size()) {
           new_t.sizes().resize(perm.size());
           for (int i = 0; i < perm.size(); i++) {
             new_t.sizes()[perm[i]] = t.sizes()[i];
           }
+        } else {
+          return false;
         }
+
         if (new_t.elem_type() == TensorProto_DataType_FLOAT) {
-          std::copy(t.floats().begin(),
-                    t.floats().end(),
-                    std::back_inserter(new_t.floats()));
+          if (t.is_raw_data()) {
+            const auto d = ParseData<float>(&t);
+            std::copy(d.begin(),
+                      d.end(),
+                      std::back_inserter(new_t.floats()));
+          }
+          else if (new_t.elem_type() == TensorProto_DataType_FLOAT) {
+            std::copy(t.floats().begin(),
+                      t.floats().end(),
+                      std::back_inserter(new_t.floats()));
+          }
         }
         Value* new_v = graph.addInitializerAndInput(new_t);
         n->replaceInput(1, new_v);
@@ -125,7 +143,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
         }
         for (int i = 0; i < n->inputs().size(); i++) {
           auto trans_node = n->inputs()[i]->node();
-          n->moveBefore(trans_node);
+          trans_node->moveAfter(n);
           n->replaceInput(i, trans_node->input());
           trans_node->removeInput(0);
           if (!trans_node->hasUses()) {
@@ -169,8 +187,8 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       auto orig_input = n->input();
       auto trans_node = orig_input->node();
       auto perm = trans_node->is(kperm);
-      n->moveBefore(orig_input->node());
-      n->replaceInput(0, orig_input->node()->input());
+      trans_node->moveAfter(n);
+      n->replaceInput(0, trans_node->input());
       int64_t axis = 0;
       if (n->hasAttribute(kaxis)) {
         axis = n->i(kaxis);
@@ -211,10 +229,11 @@ struct SwapTransposeDown final : public PredicateBasedPass {
           }
         }
       }
-
+      int32_t elem_type;
       for (int i = 0; i < inputs.size(); i++) {
         auto trans_node = inputs[i]->node();
-        n->moveBefore(trans_node);
+        elem_type = trans_node->output()->elemType();
+        trans_node->moveAfter(n);
         n->replaceInput(i, trans_node->input());
         trans_node->removeInput(0);
         if (!trans_node->hasUses()) {
@@ -231,6 +250,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       Node *new_trans_node = graph.create(kTranspose, 1);
       new_trans_node->is_(kperm, std::move(input_perm));
       new_trans_node->insertAfter(n);
+      new_trans_node->output()->setElemType(elem_type);
       n->output()->replaceAllUsesWith(new_trans_node->output());
       new_trans_node->addInput(n->output());
       reset_sizes(new_trans_node);

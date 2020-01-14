@@ -14,6 +14,8 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <iomanip>
+#include <chrono>
 
 #include "onnx/string_utils.h"
 #include "onnx/common/array_ref.h"
@@ -845,6 +847,7 @@ private:
 
   std::unordered_set<const Node*> all_nodes;
   std::unordered_set<const Value*> all_values;
+  std::unordered_set<int> all_values_unique_;
   size_t next_unique_;
 
   size_t new_node_stage_;
@@ -1050,12 +1053,12 @@ public:
     return new_init;
   }
 
-  Value* addInitializerAndInput(const Tensor &initializer) {
+  Value *addInitializerAndInput(const Tensor &initializer) {
     Tensor initializerCopy = initializer;
     std::vector<Dimension> dim_sizes{initializerCopy.sizes().cbegin(),
                                      initializerCopy.sizes().cend()};
-    Value* new_init = addInput();
-    std::string name = ONNX_NAMESPACE::to_string(new_init->unique());
+    Value *new_init = addInput();
+    std::string name = ONNX_NAMESPACE::to_string(new_init->unique()) + "_" + getTimeStamp();
     initializerCopy.setName(name);
     new_init->setUniqueName(name);
     new_init->setSizes(dim_sizes);
@@ -1064,10 +1067,20 @@ public:
     return new_init;
   }
 
+  std::string getTimeStamp() {
+    auto now = std::chrono::system_clock::now();
+    auto now_c = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    std::time_t t = std::time(nullptr);
+    char mbstr[100];
+    std::strftime(mbstr, sizeof(mbstr), "%Y%m%d%H%M%S", std::localtime(&t));
+    ss << mbstr;
+    return ss.str();
+  }
+
   size_t getUniqueId() {
     size_t unique_id = next_unique_++;
-    while (std::find(initializer_names_.begin(),
-                     initializer_names_.end(), ONNX_NAMESPACE::to_string(unique_id)) != initializer_names_.end()) {
+    while (all_values_unique_.find((int) unique_id) != all_values_unique_.end()) {
       unique_id = next_unique_++;
     }
     return unique_id;
@@ -1086,6 +1099,7 @@ public:
       delete n;
     for (const Value * v : all_values)
       delete v;
+    all_values_unique_.clear();
   }
 
   std::string toString() const {
@@ -1129,6 +1143,9 @@ private:
     auto it = all_values.find(v);
     ONNX_ASSERT(it != all_values.end());
     all_values.erase(it);
+    auto it_n = all_values_unique_.find((int) v->unique());
+    ONNX_ASSERT(it_n != all_values_unique_.end());
+    all_values_unique_.erase(it_n);
   }
 };
 
@@ -1138,6 +1155,7 @@ inline Value::Value(Node *node_, size_t offset_)
       elem_type_(ONNX_NAMESPACE::TensorProto_DataType_UNDEFINED),
       has_sizes_(false) {
   node_->graph_->all_values.emplace(this);
+  node_->graph_->all_values_unique_.emplace((int) this->unique());
 }
 
 inline Graph * Value::owningGraph() {
