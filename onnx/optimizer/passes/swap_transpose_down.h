@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "onnx/optimizer/pass.h"
 #include "onnx/defs/tensor_util.h"
+#include "onnx/optimizer/pass.h"
 
 namespace ONNX_NAMESPACE {
 namespace optimization {
@@ -17,8 +17,7 @@ const std::unordered_set<NodeKind> target_operators{kRelu,
                                                     kLeakyRelu,
                                                     kAdd,
                                                     kMul,
-                                                    kClip
-                                                    };
+                                                    kClip};
 
 struct SwapTransposeDown final : public PredicateBasedPass {
   explicit SwapTransposeDown()
@@ -31,9 +30,14 @@ struct SwapTransposeDown final : public PredicateBasedPass {
     return "swap_transpose_down";
   }
 
-  void simple_swap(Node* n, Node* trans_node, Graph& graph, NodeDestroyType& destroy_current) {
+  void simple_swap(
+      Node* n,
+      Node* trans_node,
+      Graph& graph,
+      NodeDestroyType& destroy_current) {
     n->replaceInput(0, trans_node->input());
     const auto uses = n->output()->uses();
+    auto output_sizes = n->output()->sizes();
     for (auto use : uses) {
       auto user_n = use.user;
       Node* t_n = graph.create(kTranspose, 1);
@@ -41,23 +45,23 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       t_n->insertBefore(user_n);
       t_n->addInput(n->output());
       user_n->replaceInputWith(n->output(), t_n->output());
-      reset_sizes(t_n);
+      reset_sizes(t_n, output_sizes);
       t_n->output()->setElemType(t_n->input()->elemType());
     }
-    trans_node->removeAllInputs();
-    trans_node->destroy();
+    if (!trans_node->hasUses()) {
+      trans_node->removeAllInputs();
+      trans_node->destroy();
+    }
   }
 
-  void reset_sizes(Node* trans_node) {
+  void reset_sizes(Node* trans_node, std::vector<Dimension>& output_sizes) {
     auto perm = trans_node->is(kperm);
-    if (trans_node->input()->has_sizes()) {
-      std::vector<Dimension> new_i_sizes(perm.size(), Dimension(0));
-      for (int i = 0; i < trans_node->input()->sizes().size(); i++) {
-        new_i_sizes[perm[i]].dim = trans_node->input()->sizes()[i].dim;
-      }
-      trans_node->output()->setSizes(trans_node->input()->sizes());
-      trans_node->input()->setSizes(new_i_sizes);
+    std::vector<Dimension> new_i_sizes(perm.size(), Dimension(0));
+    for (int i = 0; i < output_sizes.size(); i++) {
+      new_i_sizes[perm[i]].dim = output_sizes[i].dim;
     }
+    trans_node->output()->setSizes(output_sizes);
+    trans_node->input()->setSizes(new_i_sizes);
   }
 
   bool patternMatchPredicate(Node* node) override {
@@ -65,8 +69,10 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       return false;
     }
     if (node->kind() == kConcat) {
-      return std::all_of(node->inputs().begin(), node->inputs().end(),
-                         [](Value* input) { return input->node()->kind() == kTranspose; });
+      return std::all_of(
+          node->inputs().begin(), node->inputs().end(), [](Value* input) {
+            return input->node()->kind() == kTranspose;
+          });
     } else {
       return node->inputs()[0]->node()->kind() == kTranspose;
     }
@@ -74,9 +80,9 @@ struct SwapTransposeDown final : public PredicateBasedPass {
 
   bool runTransform(Node* n, Graph& graph, NodeDestroyType& destroy_current)
       override {
+    auto output_sizes = n->output()->sizes();
     if (n->kind() == kRelu or n->kind() == kLeakyRelu or n->kind() == kClip) {
       simple_swap(n, n->input()->node(), graph, destroy_current);
-      n->output()->setSizes(n->input()->sizes());
     }
 
     else if (n->kind() == kAdd or n->kind() == kMul) {
@@ -96,13 +102,11 @@ struct SwapTransposeDown final : public PredicateBasedPass {
             auto s = i == (int)perm[perm.size() - 1] ? t.sizes()[0] : 1;
             new_t.sizes().emplace_back(s);
           }
-        }
-        else if (t.sizes().size() == 0) {
+        } else if (t.sizes().size() == 0) {
           for (int i = 0; i < perm.size(); i++) {
             new_t.sizes().emplace_back(1);
           }
-        }
-        else if (t.sizes().size() == perm.size()) {
+        } else if (t.sizes().size() == perm.size()) {
           new_t.sizes().resize(perm.size());
           for (int i = 0; i < perm.size(); i++) {
             new_t.sizes()[perm[i]] = t.sizes()[i];
@@ -114,28 +118,26 @@ struct SwapTransposeDown final : public PredicateBasedPass {
         if (new_t.elem_type() == TensorProto_DataType_FLOAT) {
           if (t.is_raw_data()) {
             const auto d = ParseData<float>(&t);
-            std::copy(d.begin(),
-                      d.end(),
-                      std::back_inserter(new_t.floats()));
-          }
-          else if (new_t.elem_type() == TensorProto_DataType_FLOAT) {
-            std::copy(t.floats().begin(),
-                      t.floats().end(),
-                      std::back_inserter(new_t.floats()));
+            std::copy(d.begin(), d.end(), std::back_inserter(new_t.floats()));
+          } else if (new_t.elem_type() == TensorProto_DataType_FLOAT) {
+            std::copy(
+                t.floats().begin(),
+                t.floats().end(),
+                std::back_inserter(new_t.floats()));
           }
         }
         Value* new_v = graph.addInitializerAndInput(new_t);
         n->replaceInput(1, new_v);
-        graph.eraseInitializerAndInput(input_1);
+        if (input_1->uses().size() == 0) {
+          graph.eraseInitializerAndInput(input_1);
+        }
         simple_swap(n, input_0->node(), graph, destroy_current);
-      }
-      else if (input_0->node()->kind() == kTranspose
-          && input_1->node()->kind() == kTranspose) {
+      } else if (
+          input_0->node()->kind() == kTranspose &&
+          input_1->node()->kind() == kTranspose) {
         auto perm_0 = input_0->node()->is(kperm);
         auto perm_1 = input_1->node()->is(kperm);
-        if (!std::equal(perm_0.begin(),
-                        perm_0.end(),
-                        perm_1.begin())) {
+        if (!std::equal(perm_0.begin(), perm_0.end(), perm_1.begin())) {
           return false;
         }
         if (input_0->uses().size() != 1 || input_1->uses().size() != 1) {
@@ -152,13 +154,13 @@ struct SwapTransposeDown final : public PredicateBasedPass {
         }
         auto uses = n->output()->uses();
         for (int i = 0; i < n->output()->uses().size(); i++) {
-          Node *new_trans_node = graph.create(kTranspose, 1);
+          Node* new_trans_node = graph.create(kTranspose, 1);
           new_trans_node->is_(kperm, std::move(perm_0));
           new_trans_node->insertAfter(n);
           auto user = uses[i].user;
           user->replaceInputWith(n->output(), new_trans_node->output());
           new_trans_node->addInput(n->output());
-          reset_sizes(new_trans_node);
+          reset_sizes(new_trans_node, output_sizes);
         }
       } else {
         return false;
@@ -170,8 +172,8 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       std::vector<long long> pad_perm;
       std::copy(perm.begin(), perm.end(), std::back_inserter(pad_perm));
       auto rank = perm.size();
-      std::for_each(pad_perm.begin(), pad_perm.end(),
-                    [&](long long& l) { l += rank;});
+      std::for_each(
+          pad_perm.begin(), pad_perm.end(), [&](long long& l) { l += rank; });
       pad_perm.insert(pad_perm.begin(), perm.begin(), perm.end());
 
       auto pads = n->is(kpads);
@@ -204,7 +206,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
         new_trans_node->insertAfter(n);
         n->outputs()[i]->replaceAllUsesWith(new_trans_node->output());
         new_trans_node->addInput(n->outputs()[i]);
-        reset_sizes(new_trans_node);
+        reset_sizes(new_trans_node, output_sizes);
       }
       if (!trans_node->hasUses()) {
         trans_node->destroy();
@@ -218,9 +220,11 @@ struct SwapTransposeDown final : public PredicateBasedPass {
         if (input->node()->kind() != kTranspose) {
           return false;
         }
-        if (!input_perm.empty() && !std::equal(input_perm.begin(),
-                                               input_perm.end(),
-                                               input->node()->is(kperm).begin())) {
+        if (!input_perm.empty() &&
+            !std::equal(
+                input_perm.begin(),
+                input_perm.end(),
+                input->node()->is(kperm).begin())) {
           return false;
         }
         if (input_perm.empty()) {
@@ -247,13 +251,13 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       }
       auto new_axis = input_perm[axis];
       n->i_(kaxis, new_axis);
-      Node *new_trans_node = graph.create(kTranspose, 1);
+      Node* new_trans_node = graph.create(kTranspose, 1);
       new_trans_node->is_(kperm, std::move(input_perm));
       new_trans_node->insertAfter(n);
       new_trans_node->output()->setElemType(elem_type);
       n->output()->replaceAllUsesWith(new_trans_node->output());
       new_trans_node->addInput(n->output());
-      reset_sizes(new_trans_node);
+      reset_sizes(new_trans_node, output_sizes);
     }
 
     else if (n->kind() == kResize) {
