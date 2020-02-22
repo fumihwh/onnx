@@ -30,9 +30,34 @@ struct FuseAddBiasIntoConv final : public PredicateBasedPass {
   std::string getPassName() const override {
     return "fuse_add_bias_into_conv";
   }
+
+  void replace_inputs(Tensor& t, int idx, Node* conv, Graph& graph) {
+    Value* new_t_value = graph.addInitializerAndInput(t);
+    if (idx == 1) {
+      Value* old_t_value = conv->inputs()[idx];
+      conv->replaceInput(idx, new_t_value);
+      if (old_t_value->uses().size() == 0) {
+        graph.eraseInitializerAndInput(old_t_value);
+      }
+    }
+    if (idx == 2) {
+      if (conv->inputs().size() == 3) {
+        Value* old_t_value = conv->inputs()[idx];
+        conv->replaceInput(idx, new_t_value);
+        if (old_t_value->uses().size() == 0) {
+          graph.eraseInitializerAndInput(old_t_value);
+        }
+      } else {
+        Value* new_b_value = graph.addInitializerAndInput(t);
+        conv->addInput(new_b_value);
+      }
+    }
+  }
+
   bool patternMatchPredicate(Node* node) override {
-    return node->kind() == kAdd && node->inputs()[0]->node()->kind() == kConv &&
-        node->inputs()[0]->node()->inputs().size() == 2;
+    return node->kind() == kAdd &&
+        (node->inputs()[0]->node()->kind() == kConv ||
+         node->inputs()[0]->node()->kind() == kConvTranspose);
   }
   bool runTransform(Node* n, Graph& graph, NodeDestroyType& destroy_current)
       override {
@@ -61,7 +86,7 @@ struct FuseAddBiasIntoConv final : public PredicateBasedPass {
       rank = conv_shape.size();
     }
     // try to get feature M and rank from weight_shape
-    if (weight_shape.size() > 0 && weight_shape[0].is_int) {
+    else if (weight_shape.size() > 0 && weight_shape[0].is_int) {
       ONNX_ASSERT(M == -1 || M == weight_shape[0].dim);
       M = weight_shape[0].dim;
       ONNX_ASSERT(
@@ -84,96 +109,53 @@ struct FuseAddBiasIntoConv final : public PredicateBasedPass {
     if (rank < static_cast<int64_t>(bias_shape.size())) {
       return false;
     }
-    if (num_el == 1) {
-      if (orig_bias->node()->kind() != kParam &&
-          orig_conv->node()->isBefore(orig_bias->node())) {
-        orig_bias->node()->moveBefore(orig_conv->node());
-      }
-      Value* conv_3rd_input = orig_bias;
-      if (bias_shape.size() > 1) {
-        Node* squeeze = graph.create(kSqueeze, 1);
-        std::vector<int64_t> axes(bias_shape.size() - 1);
-        std::iota(axes.begin(), axes.end(), 0);
-        squeeze->is_(kaxes, std::move(axes));
-        squeeze->addInput(conv_3rd_input);
-        conv_3rd_input = squeeze->output();
-        squeeze->insertBefore(orig_conv->node());
-      }
-      if (M > 1) {
-        Node* constant = graph.create(kConstant, 1);
-        Tensor t;
-        t.sizes().push_back(static_cast<int64_t>(1));
-        t.int64s().push_back(M);
-        t.elem_type() = TensorProto_DataType_INT64;
-        Symbol sym = Symbol("value");
-        constant->t_(sym, t);
-        std::vector<Dimension> s = {1};
-        constant->output()->setSizes(s);
-        constant->output()->setElemType(TensorProto_DataType_INT64);
-        constant->insertBefore(orig_conv->node());
-        Node* tile = graph.create(kTile, 1);
-        tile->addInput(conv_3rd_input);
-        tile->addInput(constant->output());
-        conv_3rd_input = tile->output();
-        tile->insertBefore(orig_conv->node());
-      }
-      orig_conv->node()->addInput(conv_3rd_input);
-    } else if (rank > static_cast<int64_t>(bias_shape.size()) + 1) {
-      return false;
-    } else if (
-        num_el == M &&
-        bias_shape[1 + bias_shape.size() - static_cast<unsigned>(rank)].dim ==
-            M) {
-      ONNX_ASSERT(bias_shape.size() > 1);
-      if (orig_bias->node()->kind() != kParam &&
-          orig_conv->node()->isBefore(orig_bias->node())) {
-        orig_bias->node()->moveBefore(orig_conv->node());
-      }
-      if (orig_bias->node()->kind() == kParam) {
-        auto b_it = graph.getInitializer(orig_bias->uniqueName());
-        if (b_it == graph.initializers().end()) {
-          return false;
-        }
-        auto b_t = *b_it;
-        Tensor new_b_t;
-        new_b_t.elem_type() = b_t.elem_type();
-        new_b_t.sizes().emplace_back(M);
 
-#define DO_COMPUTATION(vec)
-  std::copy(b_t.floats().begin(),
-            b_t.floats().end(),
-            std::back_inserter(new_b_t.floats()));
-
-        switch (new_b_t.elem_type()) {
-          case ONNX_NAMESPACE::TensorProto_DataType_FLOAT: {
-            DO_COMPUTATION(floats)
-            break;
-          }
-          case ONNX_NAMESPACE::TensorProto_DataType_DOUBLE: {
-            DO_COMPUTATION(doubles)
-            break;
-          }
-          default:
-            return false;
-        }
-#undef DO_COMPUTATION
-
-        Value* new_b_v = graph.addInitializerAndInput(new_b_t);
-        orig_conv->node()->addInput(new_b_v);
-      } else {
-        Node* squeeze = graph.create(kSqueeze, 1);
-        std::vector<int64_t> axes(bias_shape.size());
-        std::iota(axes.begin(), axes.end(), static_cast<int64_t>(0));
-        axes.erase(
-            axes.begin() + (1 + bias_shape.size() - static_cast<unsigned>(rank)));
-        squeeze->is_(kaxes, std::move(axes));
-        squeeze->addInput(orig_bias);
-        squeeze->insertBefore(orig_conv->node());
-        orig_conv->node()->addInput(squeeze->output());
-      }
-    } else {
+    auto end_iter = graph.initializers().end();
+    auto orig_bias_iter = graph.getInitializer(orig_bias->uniqueName());
+    if (orig_bias_iter == end_iter) {
       return false;
     }
+    Tensor orig_b = *orig_bias_iter;
+    Tensor new_b;
+    new_b.elem_type() = orig_b.elem_type();
+    new_b.sizes().push_back(M);
+
+#define DO_COMPUTATION(vec)                          \
+  new_b.vec().clear();                               \
+  if (num_el == 1) {                                 \
+    for (int64_t i = 0; i < new_b.sizes()[0]; ++i) { \
+      new_b.vec().push_back(orig_b.vec()[0]);        \
+    }                                                \
+  } else {                                           \
+    for (int64_t i = 0; i < new_b.sizes()[0]; ++i) { \
+      new_b.vec().push_back(orig_b.vec()[i]);        \
+    }                                                \
+  }
+
+    switch (orig_b.elem_type()) {
+      case ONNX_NAMESPACE::TensorProto_DataType_FLOAT: {
+        DO_COMPUTATION(floats)
+        break;
+      }
+      case ONNX_NAMESPACE::TensorProto_DataType_DOUBLE: {
+        DO_COMPUTATION(doubles)
+        break;
+      }
+      default:
+        return false;
+    }
+    if (orig_conv->node()->inputs().size() == 2) {
+      Value* new_b_value = graph.addInitializerAndInput(new_b);
+      orig_conv->node()->addInput(new_b_value);
+    } else if (orig_conv->node()->inputs().size() == 3) {
+      auto conv_b =
+          *graph.getInitializer(orig_conv->node()->inputs()[2]->uniqueName());
+      conv_b.add(new_b);
+      replace_inputs(conv_b, 2, orig_conv->node(), graph);
+    }
+
+#undef DO_COMPUTATION
+
     if (orig_conv->sizes().size() == 0 && n->output()->sizes().size() > 0) {
       orig_conv->setSizes(n->output()->sizes());
     }
