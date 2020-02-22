@@ -170,7 +170,8 @@ namespace ONNX_NAMESPACE {
   _(Relu)                         \
   _(LeakyRelu)                    \
   _(Resize)                       \
-  _(Clip)
+  _(Clip)                         \
+  _(Sum)
 
 enum BuiltinSymbol {
 #define DEFINE_SYMBOL(s) k##s,
