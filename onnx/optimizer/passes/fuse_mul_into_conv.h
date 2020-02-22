@@ -12,7 +12,6 @@
 // the pass can handle the following cases:
 //   case 1: A is 4D tensor and A.dim[1] == Y.dim[0]
 
-
 #include <numeric>
 
 #include "onnx/common/assertions.h"
@@ -93,7 +92,8 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
       }
     }
     auto end_iter = graph.initializers().end();
-    auto w_iter = graph.getInitializer(orig_conv->node()->inputs()[1]->uniqueName());
+    auto w_iter =
+        graph.getInitializer(orig_conv->node()->inputs()[1]->uniqueName());
     auto s_iter = graph.getInitializer(orig_scale->uniqueName());
     if (w_iter == end_iter || s_iter == end_iter) {
       return false;
@@ -104,11 +104,11 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
     s.elem_type() = orig_s.elem_type();
     s.sizes().push_back(M);
 
-#define DO_COMPUTATION(t, vec)                                           \
-  s.vec().clear();                                                       \
-  for (int64_t i = 0; i < s.sizes()[0]; ++i) {                           \
-    s.vec().push_back(orig_s.vec()[i]);                                  \
-  }                                                                      \
+#define DO_COMPUTATION(t, vec)                 \
+  s.vec().clear();                             \
+  for (int64_t i = 0; i < s.sizes()[0]; ++i) { \
+    s.vec().push_back(orig_s.vec()[i]);        \
+  }                                            \
   (t).scale_by_first_dim(s);
 
     switch (s.elem_type()) {
@@ -126,7 +126,8 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
     replace_inputs(w, 1, orig_conv->node(), graph);
 
     if (orig_conv->node()->inputs().size() == 3) {
-      auto b_iter = graph.getInitializer(orig_conv->node()->inputs()[2]->uniqueName());
+      auto b_iter =
+          graph.getInitializer(orig_conv->node()->inputs()[2]->uniqueName());
       if (b_iter == end_iter || s_iter == end_iter) {
         return false;
       }
@@ -143,6 +144,7 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
         default:
           return false;
       }
+      replace_inputs(b, 2, orig_conv->node(), graph);
     }
 
 #undef DO_COMPUTATION

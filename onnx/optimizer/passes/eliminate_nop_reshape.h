@@ -8,7 +8,7 @@
 namespace ONNX_NAMESPACE {
 namespace optimization {
 
-struct EliminateNopTranspose final : public PredicateBasedPass {
+struct EliminateNopReshape final : public PredicateBasedPass {
   explicit EliminateNopTranspose()
       : PredicateBasedPass(
             PassType::Nop,
@@ -16,7 +16,7 @@ struct EliminateNopTranspose final : public PredicateBasedPass {
             PassOptimizationType::Compute) {}
 
   std::string getPassName() const override {
-    return "eliminate_nop_transpose";
+    return "eliminate_nop_reshape";
   }
 
   static bool is_nop_transpose(const std::vector<int64_t>& perm) {
@@ -27,19 +27,13 @@ struct EliminateNopTranspose final : public PredicateBasedPass {
   }
 
   bool patternMatchPredicate(Node* node) override {
-    return (node->kind() == kTranspose && node->hasAttribute(kperm)) &&
+    return node->kind() == kReshape && node->hasAttribute(kperm)) &&
         is_nop_transpose(node->is(kperm));
   }
 
-  bool runTransform(Node* node, Graph& graph, NodeDestroyType& destroy_current)
+  bool runTransform(Node* node, Graph&, NodeDestroyType& destroy_current)
       override {
     auto output_name = node->output()->uniqueName();
-    for (auto it = graph.outputs().begin(); it != graph.outputs().end(); it++) {
-      auto output = *it;
-      if (node->output()->uniqueName() == output->uniqueName()) {
-        node->input()->setUniqueName(output_name);
-      }
-    }
     node->output()->replaceAllUsesWith(node->input());
     node->input()->setElemType(node->output()->elemType());
     destroy_current = NodeDestroyType::DestroyOne;
