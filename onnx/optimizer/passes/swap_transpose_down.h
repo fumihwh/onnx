@@ -17,6 +17,7 @@ const std::unordered_set<NodeKind> target_operators{kRelu,
                                                     kLeakyRelu,
                                                     kAdd,
                                                     kMul,
+                                                    kSum,
                                                     kClip};
 
 struct SwapTransposeDown final : public PredicateBasedPass {
@@ -84,7 +85,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       simple_swap(n, n->input()->node(), graph, destroy_current);
     }
 
-    else if (n->kind() == kAdd or n->kind() == kMul) {
+    else if (n->kind() == kAdd or n->kind() == kMul or n->kind() == kSum) {
       auto input_0 = n->inputs()[0];
       auto input_1 = n->inputs()[1];
       if (input_1->node()->kind() == kParam) {
