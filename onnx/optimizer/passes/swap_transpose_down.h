@@ -80,7 +80,6 @@ struct SwapTransposeDown final : public PredicateBasedPass {
 
   bool runTransform(Node* n, Graph& graph, NodeDestroyType& destroy_current)
       override {
-    auto output_sizes = n->output()->sizes();
     if (n->kind() == kRelu or n->kind() == kLeakyRelu or n->kind() == kClip) {
       simple_swap(n, n->input()->node(), graph, destroy_current);
     }
@@ -153,6 +152,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
           }
         }
         auto uses = n->output()->uses();
+        auto output_sizes = n->output()->sizes();
         for (int i = 0; i < n->output()->uses().size(); i++) {
           Node* new_trans_node = graph.create(kTranspose, 1);
           new_trans_node->is_(kperm, std::move(perm_0));
@@ -206,6 +206,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
         new_trans_node->insertAfter(n);
         n->outputs()[i]->replaceAllUsesWith(new_trans_node->output());
         new_trans_node->addInput(n->outputs()[i]);
+        auto output_sizes = n->outputs()[i]->sizes();
         reset_sizes(new_trans_node, output_sizes);
       }
       if (!trans_node->hasUses()) {
@@ -257,6 +258,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       new_trans_node->output()->setElemType(elem_type);
       n->output()->replaceAllUsesWith(new_trans_node->output());
       new_trans_node->addInput(n->output());
+      auto output_sizes = n->output()->sizes();
       reset_sizes(new_trans_node, output_sizes);
     }
 
