@@ -43,15 +43,54 @@ struct FusePadTransposeIntoTransposeConv final : public PredicateBasedPass {
                   [&](long long& l) { l += rank;});
     pad_perm.insert(pad_perm.begin(), perm.begin(), perm.end());
 
-    auto pads = pad_n->is(kpads);
-    std::vector<int64_t> new_pads(pads.size());
-    for (int i = 0; i < pad_perm.size(); i++) {
-      new_pads[i] = pads[pad_perm[i]];
+    std::vector<int64_t> pads;
+    if (pad_n->hasAttribute(kpads)) {
+      // opset 10 and below
+      pads = pad_n->is(kpads);
+      std::vector<int64_t> new_pads(pads.size());
+      for (int i = 0; i < pad_perm.size(); i++) {
+        new_pads[i] = pads[pad_perm[i]];
+      }
+      pad_n->is_(kpads, std::move(new_pads));
+    } else {
+      // opset 11 and above - first check if 'pad' node has 'pads' input
+      // initialized
+      const auto& pads_name = pad_n->inputs()[1]->uniqueName();
+      const auto pads_initializer = graph.getInitializer(pads_name);
+      // 'pad' node has the 'pads' input which has not been initialized -
+      // can't proceed with fusing
+      if (pads_initializer == graph.initializers().end()) {
+        return false;
+      }
+
+      // make sure the type of 'pads' is INT64
+      if (pads_initializer->elem_type() != TensorProto::INT64) {
+        return false;
+      }
+
+      // parse 'pads' data from the initialized input
+      pads = ParseData<int64_t>(&*pads_initializer);
+
+      std::vector<int64_t> new_pads(pads.size());
+      for (int i = 0; i < pad_perm.size(); i++) {
+        new_pads[i] = pads[pad_perm[i]];
+      }
+
+      Tensor new_pads_t;
+      new_pads_t.elem_type() = TensorProto::INT64;
+      new_pads_t.sizes().emplace_back(new_pads.size());
+      for (int i = 0; i < new_pads.size(); i++) {
+        new_pads_t.int64s().emplace_back(new_pads[i]);
+      }
+
+      auto pads_v = pad_n->inputs()[1];
+      Value* new_v = graph.addInitializerAndInput(new_pads_t);
+      pad_n->replaceInput(1, new_v);
+      graph.eraseInitializerAndInput(pads_v);
     }
-    pad_n->is_(kpads, std::move(new_pads));
 
     trans_n->moveBefore(pad_n);
-    trans_n->replaceInputWith(trans_n->input(), pad_n->input());
+    trans_n->replaceInputWith(trans_n->input(), pad_n->inputs()[0]);
     trans_n->replaceAllUsesWith(pad_n);
     trans_n->output()->setSizes(trans_n->input()->sizes());
 

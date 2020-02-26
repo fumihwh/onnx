@@ -49,6 +49,9 @@ void checkShapesAndTypes(
     const auto& existingDim = existingType.shape().dim(i);
     if (inferredDim.has_dim_value() && existingDim.has_dim_value() &&
         inferredDim.dim_value() != existingDim.dim_value()) {
+      if (existingDim.dim_value() == -1) {
+        continue;
+      }
       std::stringstream ss;
       ss << "Inferred shape and existing shape differ in dimension " << i
          << ": (" << inferredDim.dim_value() << ") vs ("
@@ -116,7 +119,8 @@ void mergeShapesAndTypes(
   for (int i = 0; i < inferredType.shape().dim_size(); ++i) {
     const auto& inferredDim = inferredType.shape().dim(i);
     auto* existingDim = existingType->mutable_shape()->mutable_dim(i);
-    if (!existingDim->has_dim_value()) {
+    if (!existingDim->has_dim_value()
+        || (existingDim->has_dim_value() && existingDim->dim_value() == -1)) {
       *existingDim = inferredDim;
     }
   }
