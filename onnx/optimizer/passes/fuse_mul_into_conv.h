@@ -30,28 +30,6 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
     return "fuse_mul_into_conv";
   }
 
-  void replace_inputs(Tensor& t, int idx, Node* conv, Graph& graph) {
-    Value* new_t_value = graph.addInitializerAndInput(t);
-    Value* old_t_value = conv->inputs()[idx];
-    conv->replaceInput(idx, new_t_value);
-    if (idx == 1) {
-      if (old_t_value->uses().size() == 0) {
-        graph.eraseInitializerAndInput(old_t_value);
-      }
-    }
-    if (idx == 2) {
-      if (conv->inputs().size() == 3) {
-        conv->replaceInput(2, new_t_value);
-        if (old_t_value->uses().size() == 0) {
-          graph.eraseInitializerAndInput(old_t_value);
-        }
-      } else {
-        Value* new_b_value = graph.addInitializerAndInput(t);
-        conv->addInput(new_b_value);
-      }
-    }
-  }
-
   bool patternMatchPredicate(Node* node) override {
     return node->kind() == kMul && node->inputs()[0]->node()->kind() == kConv;
   }
@@ -104,11 +82,12 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
     s.elem_type() = orig_s.elem_type();
     s.sizes().push_back(M);
 
-#define DO_COMPUTATION(t, vec)                 \
-  s.vec().clear();                             \
-  for (int64_t i = 0; i < s.sizes()[0]; ++i) { \
-    s.vec().push_back(orig_s.vec()[i]);        \
-  }                                            \
+#define DO_COMPUTATION(t, vec)                   \
+  if (s.vec().size() != M) {                     \
+    for (int64_t i = 0; i < s.sizes()[0]; ++i) { \
+      s.vec().push_back(orig_s.vec()[i]);        \
+    }                                            \
+  }                                              \
   (t).scale_by_first_dim(s);
 
     switch (s.elem_type()) {
@@ -123,7 +102,6 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
       default:
         return false;
     }
-    replace_inputs(w, 1, orig_conv->node(), graph);
 
     if (orig_conv->node()->inputs().size() == 3) {
       auto b_iter =
@@ -144,7 +122,6 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
         default:
           return false;
       }
-      replace_inputs(b, 2, orig_conv->node(), graph);
     }
 
 #undef DO_COMPUTATION
