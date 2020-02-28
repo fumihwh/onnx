@@ -36,6 +36,14 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       Node* trans_node,
       Graph& graph,
       NodeDestroyType& destroy_current) {
+    bool is_output_node = false;
+    for (auto it = graph.outputs().begin(); it != graph.outputs().end(); it++) {
+      auto output = *it;
+      if (n->output()->uniqueName() == output->uniqueName()) {
+        is_output_node = true;
+        break;
+      }
+    }
     n->replaceInput(0, trans_node->input());
     const auto uses = n->output()->uses();
     auto output_sizes = n->output()->sizes();
@@ -48,6 +56,11 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       user_n->replaceInputWith(n->output(), t_n->output());
       reset_sizes(t_n, output_sizes);
       t_n->output()->setElemType(t_n->input()->elemType());
+      if (is_output_node) {
+        t_n->output()->setUniqueName(n->output()->uniqueName());
+        n->output()->setUniqueName(
+            n->output()->uniqueName() + "_" + graph.getTimeStamp());
+      }
     }
     if (!trans_node->hasUses()) {
       trans_node->removeAllInputs();
