@@ -104,11 +104,12 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
     s.elem_type() = orig_s.elem_type();
     s.sizes().push_back(M);
 
-#define DO_COMPUTATION(t, vec)                 \
-  s.vec().clear();                             \
-  for (int64_t i = 0; i < s.sizes()[0]; ++i) { \
-    s.vec().push_back(orig_s.vec()[i]);        \
-  }                                            \
+#define DO_COMPUTATION(t, vec)                   \
+  if (s.vec().size() != M) {                     \
+    for (int64_t i = 0; i < s.sizes()[0]; ++i) { \
+      s.vec().push_back(orig_s.vec()[i]);        \
+    }                                            \
+  }                                              \
   (t).scale_by_first_dim(s);
 
     switch (s.elem_type()) {
