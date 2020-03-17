@@ -59,7 +59,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       if (is_output_node) {
         t_n->output()->setUniqueName(n->output()->uniqueName());
         n->output()->setUniqueName(
-            n->output()->uniqueName() + "_" + graph.getTimeStamp());
+            n->output()->uniqueName() + "_" + graph.generate_hex());
       }
     }
     if (!trans_node->hasUses()) {
