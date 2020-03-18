@@ -59,7 +59,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       if (is_output_node) {
         t_n->output()->setUniqueName(n->output()->uniqueName());
         n->output()->setUniqueName(
-            n->output()->uniqueName() + "_" + graph.getTimeStamp());
+            n->output()->uniqueName() + "_" + graph.generate_hex());
       }
     }
     if (!trans_node->hasUses()) {
@@ -170,6 +170,59 @@ struct SwapTransposeDown final : public PredicateBasedPass {
         for (int i = 0; i < n->output()->uses().size(); i++) {
           Node* new_trans_node = graph.create(kTranspose, 1);
           new_trans_node->is_(kperm, std::move(perm_0));
+          new_trans_node->insertAfter(n);
+          auto user = uses[i].user;
+          user->replaceInputWith(n->output(), new_trans_node->output());
+          new_trans_node->addInput(n->output());
+          reset_sizes(new_trans_node, output_sizes);
+        }
+      } else if (
+          input_0->node()->kind() == kTranspose ||
+          input_1->node()->kind() == kTranspose) {
+        Node* trans_node;
+        if (input_0->node()->kind() == kTranspose) {
+          trans_node = input_0->node();
+        } else {
+          trans_node = input_1->node();
+        }
+        auto perm = trans_node->is(kperm);
+        if (input_0->uses().size() != 1 || input_1->uses().size() != 1) {
+          return false;
+        }
+
+        for (int i = 0; i < n->inputs().size(); i++) {
+          if (n->inputs()[i]->node()->kind() == kTranspose) {
+            trans_node->moveAfter(n);
+            n->replaceInput(i, trans_node->input());
+            trans_node->removeInput(0);
+            if (!trans_node->hasUses()) {
+              trans_node->destroy();
+            }
+          } else {
+            std::vector<int64_t> reverse_perm(perm.size());
+            for (int j = 0; j < perm.size(); j++) {
+              reverse_perm[perm[j]] = j;
+            }
+            Node* reverse_trans_node = graph.create(kTranspose, 1);
+            reverse_trans_node->is_(kperm, std::move(reverse_perm));
+            reverse_trans_node->insertBefore(n);
+            reverse_trans_node->addInput(n->inputs()[i]);
+            n->replaceInput(i, reverse_trans_node->output());
+            auto old_i_sizes = reverse_trans_node->input()->sizes();
+            std::vector<Dimension> new_i_sizes(perm.size(), Dimension(0));
+            for (int i = 0; i < perm.size(); i++) {
+              new_i_sizes[perm[i]].dim = old_i_sizes[i].dim;
+            }
+            reverse_trans_node->output()->setSizes(new_i_sizes);
+            reverse_trans_node->output()->setElemType(
+                reverse_trans_node->input()->elemType());
+          }
+        }
+        auto uses = n->output()->uses();
+        auto output_sizes = n->output()->sizes();
+        for (int i = 0; i < n->output()->uses().size(); i++) {
+          Node* new_trans_node = graph.create(kTranspose, 1);
+          new_trans_node->is_(kperm, std::move(perm));
           new_trans_node->insertAfter(n);
           auto user = uses[i].user;
           user->replaceInputWith(n->output(), new_trans_node->output());

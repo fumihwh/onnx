@@ -16,6 +16,7 @@
 #include <vector>
 #include <iomanip>
 #include <chrono>
+#include <random>
 
 #include "onnx/string_utils.h"
 #include "onnx/common/array_ref.h"
@@ -1058,7 +1059,7 @@ public:
     std::vector<Dimension> dim_sizes{initializerCopy.sizes().cbegin(),
                                      initializerCopy.sizes().cend()};
     Value *new_init = addInput();
-    std::string name = ONNX_NAMESPACE::to_string(new_init->unique()) + "_" + getTimeStamp();
+    std::string name = ONNX_NAMESPACE::to_string(new_init->unique()) + "_" + generate_hex();
     initializerCopy.setName(name);
     new_init->setUniqueName(name);
     new_init->setSizes(dim_sizes);
@@ -1067,14 +1068,22 @@ public:
     return new_init;
   }
 
-  std::string getTimeStamp() {
-    auto now = std::chrono::system_clock::now();
-    auto now_c = std::chrono::system_clock::to_time_t(now);
+  unsigned int random_char() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 255);
+    return dis(gen);
+  }
+
+  std::string generate_hex(const unsigned int len=4) {
     std::stringstream ss;
-    std::time_t t = std::time(nullptr);
-    char mbstr[100];
-    std::strftime(mbstr, sizeof(mbstr), "%Y%m%d%H%M%S", std::localtime(&t));
-    ss << mbstr;
+    for (auto i = 0; i < len; i++) {
+      const auto rc = random_char();
+      std::stringstream hexstream;
+      hexstream << std::hex << rc;
+      auto hex = hexstream.str();
+      ss << (hex.length() < 2 ? '0' + hex : hex);
+    }
     return ss.str();
   }
 
