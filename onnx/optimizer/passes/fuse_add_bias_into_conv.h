@@ -16,6 +16,7 @@
 #include <numeric>
 
 #include "onnx/common/assertions.h"
+#include "onnx/defs/tensor_util.h"
 #include "onnx/optimizer/pass.h"
 
 namespace ONNX_NAMESPACE {
@@ -122,13 +123,14 @@ struct FuseAddBiasIntoConv final : public PredicateBasedPass {
 
 #define DO_COMPUTATION(vec)                          \
   new_b.vec().clear();                               \
+  const auto d = ParseData<float>(&orig_b);          \
   if (num_el == 1) {                                 \
     for (int64_t i = 0; i < new_b.sizes()[0]; ++i) { \
-      new_b.vec().push_back(orig_b.vec()[0]);        \
+      new_b.vec().push_back(d[0]);                   \
     }                                                \
   } else {                                           \
     for (int64_t i = 0; i < new_b.sizes()[0]; ++i) { \
-      new_b.vec().push_back(orig_b.vec()[i]);        \
+      new_b.vec().push_back(d[i]);                   \
     }                                                \
   }
 
