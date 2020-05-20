@@ -369,7 +369,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       reset_sizes(new_trans_node, output_sizes);
     }
 
-    else if (n->kind() == kResize) {
+    else if (n->kind() == kResize && !n->has_domain()) {
       auto perm = n->inputs()[0]->node()->is(kperm);
       auto scales_it = graph.getInitializer(n->inputs()[1]->uniqueName());
       if (scales_it == graph.initializers().end()) {

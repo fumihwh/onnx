@@ -121,9 +121,9 @@ struct FuseAddBiasIntoConv final : public PredicateBasedPass {
     new_b.elem_type() = orig_b.elem_type();
     new_b.sizes().push_back(M);
 
-#define DO_COMPUTATION(vec)                          \
+#define DO_COMPUTATION(v, vec)                       \
   new_b.vec().clear();                               \
-  const auto d = ParseData<float>(&orig_b);          \
+  const auto d = ParseData<v>(&orig_b);              \
   if (num_el == 1) {                                 \
     for (int64_t i = 0; i < new_b.sizes()[0]; ++i) { \
       new_b.vec().push_back(d[0]);                   \
@@ -136,11 +136,11 @@ struct FuseAddBiasIntoConv final : public PredicateBasedPass {
 
     switch (orig_b.elem_type()) {
       case ONNX_NAMESPACE::TensorProto_DataType_FLOAT: {
-        DO_COMPUTATION(floats)
+        DO_COMPUTATION(float, floats)
         break;
       }
       case ONNX_NAMESPACE::TensorProto_DataType_DOUBLE: {
-        DO_COMPUTATION(doubles)
+        DO_COMPUTATION(double, doubles)
         break;
       }
       default:

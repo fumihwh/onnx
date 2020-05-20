@@ -104,21 +104,22 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
     s.elem_type() = orig_s.elem_type();
     s.sizes().push_back(M);
 
-#define DO_COMPUTATION(t, vec)                   \
+#define DO_COMPUTATION(t, v, vec)                \
   if (s.vec().size() != M) {                     \
+    const auto d = ParseData<v>(&orig_s);        \
     for (int64_t i = 0; i < s.sizes()[0]; ++i) { \
-      s.vec().push_back(orig_s.vec()[i]);        \
+      s.vec().push_back(d[i]);                   \
     }                                            \
   }                                              \
   (t).scale_by_first_dim(s);
 
     switch (s.elem_type()) {
       case ONNX_NAMESPACE::TensorProto_DataType_FLOAT: {
-        DO_COMPUTATION(w, floats)
+        DO_COMPUTATION(w, float, floats)
         break;
       }
       case ONNX_NAMESPACE::TensorProto_DataType_DOUBLE: {
-        DO_COMPUTATION(w, doubles)
+        DO_COMPUTATION(w, double, doubles)
         break;
       }
       default:
@@ -135,11 +136,11 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
       Tensor b = *b_iter;
       switch (s.elem_type()) {
         case ONNX_NAMESPACE::TensorProto_DataType_FLOAT: {
-          DO_COMPUTATION(b, floats)
+          DO_COMPUTATION(b, float, floats)
           break;
         }
         case ONNX_NAMESPACE::TensorProto_DataType_DOUBLE: {
-          DO_COMPUTATION(b, doubles)
+          DO_COMPUTATION(b, double, doubles)
           break;
         }
         default:

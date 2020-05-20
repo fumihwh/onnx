@@ -8,27 +8,24 @@
 namespace ONNX_NAMESPACE {
 namespace optimization {
 
-struct EliminateNopDropout final : public PredicateBasedPass {
-  explicit EliminateNopDropout()
+struct EliminateOneInputConcat final : public PredicateBasedPass {
+  explicit EliminateOneInputConcat()
       : PredicateBasedPass(
             PassType::Nop,
             PassEfficiency::Complete,
             PassOptimizationType::Compute) {}
 
   std::string getPassName() const override {
-    return "eliminate_nop_dropout";
+    return "eliminate_one_input_concat";
   }
 
   bool patternMatchPredicate(Node* node) override {
-    return (node->kind() == kDropout && node->hasAttribute(kratio));
+    return (node->kind() == kConcat && node->inputs().size() == 1);
   }
 
   bool runTransform(Node* node, Graph&, NodeDestroyType& destroy_current)
       override {
-    // Don't assume that theres only one output.
-    for (size_t i = 0; i < node->outputs().size(); ++i) {
-      node->outputs()[i]->replaceAllUsesWith(node->input());
-    }
+    node->output()->replaceAllUsesWith(node->input());
     destroy_current = NodeDestroyType::DestroyOne;
     return true;
   }
