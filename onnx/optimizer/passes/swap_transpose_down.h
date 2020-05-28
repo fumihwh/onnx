@@ -190,6 +190,10 @@ struct SwapTransposeDown final : public PredicateBasedPass {
           return false;
         }
 
+        if (n->inputs().size() != perm.size()) {
+          return false;
+        }
+
         for (int i = 0; i < n->inputs().size(); i++) {
           if (n->inputs()[i]->node()->kind() == kTranspose) {
             trans_node->moveAfter(n);
