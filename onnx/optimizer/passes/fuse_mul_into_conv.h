@@ -86,11 +86,25 @@ struct FuseMulIntoConv final : public PredicateBasedPass {
           rank == -1 || rank == static_cast<int64_t>(weight_shape.size()));
       rank = weight_shape.size();
     }
-    for (int i = 0; i < rank; i++) {
-      if (scale_shape[i].dim != (i == 1 ? M : 1)) {
+
+    int64_t num_el = 1;
+    for (int i = 0; i < static_cast<int64_t>(scale_shape.size()); ++i) {
+      if (scale_shape[i].is_int) {
+        num_el *= scale_shape[i].dim;
+      } else {
+        num_el = -1;
         return false;
       }
     }
+
+    if (M == -1 || num_el == -1) {
+      // No enough information, bail out
+      return false;
+    }
+    if (rank < static_cast<int64_t>(scale_shape.size())) {
+      return false;
+    }
+
     auto end_iter = graph.initializers().end();
     auto w_iter =
         graph.getInitializer(orig_conv->node()->inputs()[1]->uniqueName());
