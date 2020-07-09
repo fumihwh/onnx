@@ -18,7 +18,8 @@ const std::unordered_set<NodeKind> target_operators{kRelu,
                                                     kAdd,
                                                     kMul,
                                                     kSum,
-                                                    kClip};
+                                                    kClip,
+                                                    kNeg};
 
 struct SwapTransposeDown final : public PredicateBasedPass {
   explicit SwapTransposeDown()
@@ -94,7 +95,7 @@ struct SwapTransposeDown final : public PredicateBasedPass {
 
   bool runTransform(Node* n, Graph& graph, NodeDestroyType& destroy_current)
       override {
-    if (n->kind() == kRelu or n->kind() == kLeakyRelu or n->kind() == kClip) {
+    if (n->kind() == kRelu or n->kind() == kLeakyRelu or n->kind() == kClip or n->kind() == kNeg) {
       simple_swap(n, n->input()->node(), graph, destroy_current);
     }
 
@@ -349,10 +350,9 @@ struct SwapTransposeDown final : public PredicateBasedPass {
       for (int i = 0; i < inputs.size(); i++) {
         auto trans_node = inputs[i]->node();
         elem_type = trans_node->output()->elemType();
-        trans_node->moveAfter(n);
         n->replaceInput(i, trans_node->input());
-        trans_node->removeInput(0);
-        if (!trans_node->hasUses()) {
+        if (trans_node->output()->uses().empty()) {
+          trans_node->removeInput(0);
           trans_node->destroy();
         }
       }
